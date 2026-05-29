@@ -91,31 +91,36 @@ function onStoreChange(s: ReturnType<typeof useStore.getState>) {
     ts: Date.now()
   }
   const meJson = JSON.stringify({ ...me, ts: 0 })
-  if (meJson !== last.me) { last.me = meJson; void set(ref(db, `rooms/${code}/players/${s.playerId}`), strip(me)) }
+  if (meJson !== last.me) { last.me = meJson; write(set(ref(db, `rooms/${code}/players/${s.playerId}`), strip(me)), 'players') }
 
   const state = { round: s.round, startingTeam: s.startingTeam, settings: s.settings, phase: s.phase, phaseStart: s.phaseStart }
   const stateJson = JSON.stringify(state)
-  if (stateJson !== last.state) { last.state = stateJson; void set(ref(db, `rooms/${code}/state`), state) }
+  if (stateJson !== last.state) { last.state = stateJson; write(set(ref(db, `rooms/${code}/state`), strip(state)), 'state') }
 
   // Log: merge individual entries (and delete removed ones) so two devices can
-  // both write without overwriting each other's questions.
+  // both write without overwriting each other's questions. Firebase rejects
+  // `undefined`, so each entry is stripped of undefined fields first.
   const logJson = JSON.stringify(s.log)
   if (logJson !== last.log) {
     last.log = logJson
-    const updates: Record<string, LogEntry | null> = {}
-    for (const e of s.log) updates[e.id] = e
+    const updates: Record<string, Partial<LogEntry> | null> = {}
+    for (const e of s.log) updates[e.id] = strip(e)
     for (const id of lastLogIds) if (!s.log.some((e) => e.id === id)) updates[id] = null
     lastLogIds = new Set(s.log.map((e) => e.id))
-    if (Object.keys(updates).length) void update(ref(db, `rooms/${code}/log`), updates)
+    if (Object.keys(updates).length) write(update(ref(db, `rooms/${code}/log`), updates), 'log')
   }
 
   // Played-card effects are the hider's domain (only the hider writes them).
   if (role === 'hider') {
-    const effMap: Record<string, ActiveEffect> = {}
-    for (const e of s.effects) effMap[e.id] = e
+    const effMap: Record<string, Partial<ActiveEffect>> = {}
+    for (const e of s.effects) effMap[e.id] = strip(e)
     const effJson = JSON.stringify(s.effects)
-    if (effJson !== last.effects) { last.effects = effJson; void set(ref(db, `rooms/${code}/effects`), effMap) }
+    if (effJson !== last.effects) { last.effects = effJson; write(set(ref(db, `rooms/${code}/effects`), effMap), 'effects') }
   }
+}
+
+function write(p: Promise<unknown>, what: string) {
+  p.catch((e) => console.error(`[sync] write failed: ${what}`, e))
 }
 
 // Firebase rejects `undefined` values - drop them.
