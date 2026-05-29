@@ -1,0 +1,11 @@
+# Netlify (és Cloudflare Pages) build beállítás.
+# Telepítés: töltsd fel a repót Netlify/Cloudflare Pages-re, a build a következő.
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# SPA fallback – minden útvonal az index.html-re.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

@@ -1,0 +1,16 @@
+node_modules
+dist
+dist-ssr
+*.local
+.env
+.env.local
+.DS_Store
+.vite
+
+# local-only editor/agent settings
+.claude/settings.local.json
+
+# Large intermediate downloads from the data pipeline (kept out of git;
+# the generated public/data/*.geojson ARE committed so the app works without
+# re-running the pipeline).
+scripts/.cache

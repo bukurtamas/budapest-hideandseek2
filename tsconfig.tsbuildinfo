@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/firebase.ts","./src/hooks.ts","./src/main.tsx","./src/store.ts","./src/sync.ts","./src/data/load.ts","./src/data/types.ts","./src/geo/zone.ts","./src/geo/zone.worker.ts","./src/map/mapview.tsx","./src/map/baselayers.ts","./src/map/gamelayers.ts","./src/types/game.ts","./src/ui/panel.tsx","./src/ui/rolebar.tsx"],"errors":true,"version":"5.9.3"}

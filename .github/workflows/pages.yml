@@ -1,0 +1,53 @@
+name: Deploy to GitHub Pages
+
+# Aktiváld: a repó Settings → Pages → "Source: GitHub Actions".
+# Élő követéshez add meg a VITE_FIREBASE_* értékeket repo secrets/variables-ként,
+# és töltsd ki az env blokkot a build lépésnél (lásd alább).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+        # Firebase web config values are client-side (not secrets): the Realtime
+        # Database rules (auth != null) protect the data. Move these to repo
+        # Secrets/Variables later if you prefer.
+        env:
+          VITE_FIREBASE_API_KEY: AIzaSyCoiTibS9deXg9XwHgFofNscrHVZN7t3YQ
+          VITE_FIREBASE_AUTH_DOMAIN: budapest-hideandseek2.firebaseapp.com
+          VITE_FIREBASE_DATABASE_URL: https://budapest-hideandseek2-default-rtdb.europe-west1.firebasedatabase.app
+          VITE_FIREBASE_PROJECT_ID: budapest-hideandseek2
+          VITE_FIREBASE_APP_ID: "1:671771034337:web:bc73d1bf5cc8903191eda0"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
