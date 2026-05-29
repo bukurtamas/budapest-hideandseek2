@@ -7,6 +7,7 @@ export default function RoleBar() {
   const area = useStore((s) => s.areaKm2)
   const empty = useStore((s) => s.empty)
   const computing = useStore((s) => s.computing)
+  const bonus = useStore((s) => s.bonusMinutes)
   const phase = useStore((s) => s.phase)
   const phaseStart = useStore((s) => s.phaseStart)
   const settings = useStore((s) => s.settings)
@@ -34,6 +35,7 @@ export default function RoleBar() {
         {isHider ? 'HIDER' : 'SEEKER'}
       </span>
       <span style={chip}>Round {round}</span>
+      {isHider && bonus > 0 && <span style={{ ...chip, color: 'var(--seeker)', fontWeight: 700 }}>+{bonus} min</span>}
       {timer && (
         <span style={{ ...chip, background: timer.over ? '#7f1d1d' : timer.warn ? 'rgba(245,158,11,.9)' : chip.background, fontWeight: 700 }}>
           {timer.label} {timer.text}

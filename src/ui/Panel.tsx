@@ -6,12 +6,13 @@ import {
 } from '../types/game'
 import { POI_LABEL, type PoiCategory } from '../data/types'
 import { suggestAnswer, type Suggestion } from '../geo/answer'
+import { CARDS, CARD_GROUPS } from '../data/cards'
 
 const fmtKm = (km: number) => (km < 1 ? `${Math.round(km * 1000)} m` : `${km} km`)
 const fmtPos = (p: LngLat | null) => (p ? `${p[1].toFixed(5)}, ${p[0].toFixed(5)}` : 'not set')
 
-type Tab = 'ask' | 'answer' | 'log' | 'pos' | 'set'
-const TAB_LABEL: Record<Tab, string> = { ask: 'Ask', answer: 'Answer', log: 'Log', pos: 'Location', set: 'Settings' }
+type Tab = 'ask' | 'answer' | 'deck' | 'log' | 'pos' | 'set'
+const TAB_LABEL: Record<Tab, string> = { ask: 'Ask', answer: 'Answer', deck: 'Deck', log: 'Log', pos: 'Loc', set: 'Set' }
 const PHASE_LABEL: Record<string, string> = { idle: 'idle', hiding: 'hiding', seeking: 'seeking', done: 'over' }
 
 const POI_CATS: PoiCategory[] = ['museum', 'library', 'hospital', 'cinema', 'park', 'zoo', 'aquarium', 'theme_park', 'golf']
@@ -34,7 +35,7 @@ const MEASURE_OPTS: MeasureOpt[] = [
 export default function Panel() {
   const role = useStore((s) => s.myRole())
   const [open, setOpen] = useState(true)
-  const tabs: Tab[] = role === 'hider' ? ['answer', 'log', 'pos', 'set'] : ['ask', 'log', 'pos', 'set']
+  const tabs: Tab[] = role === 'hider' ? ['answer', 'deck', 'log', 'pos', 'set'] : ['ask', 'log', 'pos', 'set']
   const [tab, setTab] = useState<Tab>(tabs[0])
   useEffect(() => { if (!tabs.includes(tab)) setTab(tabs[0]) }, [role]) // eslint-disable-line
 
@@ -59,6 +60,7 @@ export default function Panel() {
         <div style={{ maxHeight: '46vh', overflowY: 'auto', padding: '4px 12px 14px' }}>
           {tab === 'ask' && <AskTab />}
           {tab === 'answer' && <AnswerTab />}
+          {tab === 'deck' && <DeckTab />}
           {tab === 'log' && <LogTab />}
           {tab === 'pos' && <PosTab />}
           {tab === 'set' && <SetTab />}
@@ -104,6 +106,9 @@ function AskTab() {
   const setRef = useStore((s) => s.setSeekerRef)
   const ask = useStore((s) => s.askQuestion)
   const active = useStore((s) => s.gameActive())
+  const block = useStore((s) => s.askBlock())
+  useTick(block.blocked)
+  const canSend = active && !block.blocked
 
   const [cat, setCat] = useState<Category>('radar')
   const [matchIdx, setMatchIdx] = useState(0)
@@ -123,6 +128,7 @@ function AskTab() {
   return (
     <div style={{ display: 'grid', gap: 10 }}>
       {!active && <div style={{ color: 'var(--warn)', fontSize: 13 }}>Waiting for the hider to join the room before you can ask.</div>}
+      {block.blocked && <div style={{ color: 'var(--hider)', fontSize: 13, fontWeight: 600 }}>Questions locked by "{block.reason}" {countdown(block.until)}</div>}
       <div style={{ fontSize: 12, color: 'var(--muted)' }}>
         Asker location: <b style={{ color: 'var(--text)' }}>{fmtPos(ref)}</b>
         {noRef && <div style={{ color: 'var(--warn)' }}>Tap the map, or use your location.</div>}
@@ -142,13 +148,13 @@ function AskTab() {
       {cat === 'matching' && (
         <Section title="Is your nearest ___ the same as mine?">
           <Select value={matchIdx} onChange={setMatchIdx} options={MATCH_OPTS.map((o, i) => [i, o.label])} />
-          <Send disabled={noRef || !active} onClick={() => { ask({ category: 'matching', matchKind: m.kind, poiCategory: m.poi, seeker: ref!, approx: m.kind === 'line', label: `Matching: ${m.label}` }); flash() }} sent={sent} />
+          <Send disabled={noRef || !canSend} onClick={() => { ask({ category: 'matching', matchKind: m.kind, poiCategory: m.poi, seeker: ref!, approx: m.kind === 'line', label: `Matching: ${m.label}` }); flash() }} sent={sent} />
         </Section>
       )}
       {cat === 'radar' && (
         <Section title="Are you within this distance of me?">
           <Choices value={radiusKm} set={setRadiusKm} opts={RADAR_RADII_KM.map((r) => [r, fmtKm(r)] as [number, string])} />
-          <Send disabled={noRef || !active} onClick={() => { ask({ category: 'radar', radiusKm, seeker: ref!, label: `Radar: within ${fmtKm(radiusKm)}?` }); flash() }} sent={sent} />
+          <Send disabled={noRef || !canSend} onClick={() => { ask({ category: 'radar', radiusKm, seeker: ref!, label: `Radar: within ${fmtKm(radiusKm)}?` }); flash() }} sent={sent} />
         </Section>
       )}
       {cat === 'thermometer' && (
@@ -156,19 +162,19 @@ function AskTab() {
           <div style={{ fontSize: 12, color: 'var(--muted)' }}>Start point: <b style={{ color: 'var(--text)' }}>{fmtPos(thermoFrom)}</b></div>
           <Choices value={thermoMin} set={setThermoMin} opts={THERMO_DISTANCES_KM.map((d) => [d, `at least ${fmtKm(d)}`] as [number, string])} />
           <button onClick={() => setThermoFrom(ref)} disabled={noRef}>Set start point (current asker location)</button>
-          <Send disabled={noRef || !thermoFrom || !active} onClick={() => { ask({ category: 'thermometer', from: thermoFrom!, to: ref!, thermoMinKm: thermoMin, label: `Thermometer: moved at least ${fmtKm(thermoMin)}` }); flash() }} sent={sent} />
+          <Send disabled={noRef || !thermoFrom || !canSend} onClick={() => { ask({ category: 'thermometer', from: thermoFrom!, to: ref!, thermoMinKm: thermoMin, label: `Thermometer: moved at least ${fmtKm(thermoMin)}` }); flash() }} sent={sent} />
         </Section>
       )}
       {cat === 'measuring' && (
         <Section title="Compared to me, are you closer to or further from ___?">
           <Select value={measureIdx} onChange={setMeasureIdx} options={MEASURE_OPTS.map((o, i) => [i, o.label])} />
-          <Send disabled={noRef || !active} onClick={() => { ask({ category: 'measuring', measureFeature: f.feature, poiCategory: f.poi, seeker: ref!, label: `Measuring: ${f.label}` }); flash() }} sent={sent} />
+          <Send disabled={noRef || !canSend} onClick={() => { ask({ category: 'measuring', measureFeature: f.feature, poiCategory: f.poi, seeker: ref!, label: `Measuring: ${f.label}` }); flash() }} sent={sent} />
         </Section>
       )}
       {(cat === 'tentacle' || cat === 'photo') && (
         <Section title={cat === 'tentacle' ? 'Tentacles (manual)' : 'Photos (manual)'}>
           <input placeholder="Describe the question" value={note} onChange={(e) => setNote(e.target.value)} />
-          <Send disabled={!active} onClick={() => { ask({ category: cat, label: `${cat === 'tentacle' ? 'Tentacles' : 'Photo'}: ${note || '(question)'}` }); setNote(''); flash() }} sent={sent} />
+          <Send disabled={!canSend} onClick={() => { ask({ category: cat, label: `${cat === 'tentacle' ? 'Tentacles' : 'Photo'}: ${note || '(question)'}` }); setNote(''); flash() }} sent={sent} />
         </Section>
       )}
     </div>
@@ -249,6 +255,44 @@ function fmtAnswer(a: LogEntry['answer']): string {
   if (a === false) return 'no'
   if (a == null) return 'pending'
   return String(a)
+}
+
+// ---- HIDER: deck (manual add + play) ----
+function DeckTab() {
+  const hand = useStore((s) => s.hand)
+  const bonus = useStore((s) => s.bonusMinutes)
+  const add = useStore((s) => s.addCardToDeck)
+  const play = useStore((s) => s.playCard)
+  const remove = useStore((s) => s.removeHandCard)
+  const [pick, setPick] = useState('')
+  return (
+    <div style={{ display: 'grid', gap: 10 }}>
+      <div style={{ fontSize: 13 }}>Time banked: <b style={{ color: 'var(--seeker)' }}>+{bonus} min</b></div>
+      <Section title="Add a card you drew">
+        <select value={pick} onChange={(e) => setPick(e.target.value)}>
+          <option value="">Choose a card...</option>
+          {CARD_GROUPS.map((g) => (
+            <optgroup key={g.label} label={g.label}>
+              {g.cards.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </optgroup>
+          ))}
+        </select>
+        <button className="primary" disabled={!pick} onClick={() => { const c = CARDS.find((x) => x.id === pick); if (c) add(c); setPick('') }}>Add to deck</button>
+      </Section>
+      <div style={{ fontSize: 12, color: 'var(--muted)' }}>Your deck ({hand.length})</div>
+      {hand.length === 0 && <div style={{ color: 'var(--muted)', fontSize: 13 }}>No cards yet. Add the cards you draw with the physical deck.</div>}
+      {hand.map((c) => (
+        <div key={c.uid} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: 'var(--panel-2)', borderRadius: 10 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>{c.name}</div>
+            {c.text && <div style={{ fontSize: 11, color: 'var(--muted)' }}>{c.text}</div>}
+          </div>
+          <button className="primary" onClick={() => play(c.uid)}>Play</button>
+          <button className="danger" onClick={() => remove(c.uid)} style={{ padding: '6px 9px' }}>x</button>
+        </div>
+      ))}
+    </div>
+  )
 }
 
 function LogTab() {
@@ -352,6 +396,20 @@ function SetTab() {
 }
 
 // building blocks
+function useTick(active: boolean) {
+  const [, setN] = useState(0)
+  useEffect(() => {
+    if (!active) return
+    const i = setInterval(() => setN((n) => n + 1), 1000)
+    return () => clearInterval(i)
+  }, [active])
+}
+function countdown(until?: number): string {
+  if (!until) return ''
+  const s = Math.max(0, Math.round((until - Date.now()) / 1000))
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
+}
+
 const fs: React.CSSProperties = { border: '1px solid var(--line)', borderRadius: 10, padding: '8px 10px', margin: 0 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {

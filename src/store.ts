@@ -1,7 +1,10 @@
 import { create } from 'zustand'
-import type { LngLat, LogEntry, Phase, PlayerState, Role, Settings, Team, ComputeResult } from './types/game'
+import type { ActiveEffect, LngLat, LogEntry, Phase, PlayerState, Role, Settings, Team, ComputeResult } from './types/game'
 import { DEFAULT_SETTINGS } from './types/game'
 import type { AppData } from './data/types'
+import type { Card } from './data/cards'
+
+export type HandCard = Card & { uid: string }
 
 let worker: Worker | null = null
 let debounce: ReturnType<typeof setTimeout> | undefined
@@ -42,6 +45,10 @@ interface State {
   gpsEnabled: boolean
   gpsError: string | null
   appData: AppData | null // map data, kept for hider answer suggestions
+  // hider deck
+  hand: HandCard[]
+  effects: ActiveEffect[] // active played-card effects (hider-written, all read)
+  bonusMinutes: number
 
   // derived
   myRole: () => Role
@@ -49,6 +56,12 @@ interface State {
   visiblePlayers: () => PlayerState[]
   presentRoles: () => { hider: boolean; seeker: boolean }
   gameActive: () => boolean
+  askBlock: () => { blocked: boolean; until?: number; reason?: string }
+  // deck actions
+  addCardToDeck: (card: Card) => void
+  removeHandCard: (uid: string) => void
+  playCard: (uid: string) => void
+  setEffects: (effects: ActiveEffect[]) => void
 
   // actions
   init: () => void
@@ -104,6 +117,9 @@ export const useStore = create<State>((set, get) => ({
   gpsEnabled: false,
   gpsError: null,
   appData: null,
+  hand: [],
+  effects: [],
+  bonusMinutes: 0,
 
   hidingTeam: () => {
     const { startingTeam, round } = get()
@@ -120,6 +136,11 @@ export const useStore = create<State>((set, get) => ({
     if (!get().roomCode) return true // local / single-device testing
     const r = get().presentRoles()
     return r.hider && r.seeker
+  },
+  askBlock: () => {
+    const now = Date.now()
+    const lock = get().effects.find((e) => (e.kind === 'askLock' || e.kind === 'delay') && e.until && e.until > now)
+    return lock ? { blocked: true, until: lock.until, reason: lock.cardName } : { blocked: false }
   },
   visiblePlayers: () => {
     const { players, playerId } = get()
@@ -169,7 +190,7 @@ export const useStore = create<State>((set, get) => ({
   setRound: (n) => set({ round: Math.max(1, n) }),
   setStartingTeam: (t) => set({ startingTeam: t }),
   startPhase: (phase) => set({ phase, phaseStart: phase === 'idle' ? null : Date.now() }),
-  nextRound: () => { set({ round: get().round + 1, phase: 'idle', phaseStart: null, log: [], seekerRef: null }); get().recompute() },
+  nextRound: () => { set({ round: get().round + 1, phase: 'idle', phaseStart: null, log: [], seekerRef: null, hand: [], effects: [], bonusMinutes: 0 }); get().recompute() },
   patchSettings: (p) => { set({ settings: { ...get().settings, ...p } }); get().recompute() },
   setMyPos: (p) => {
     set({ myPos: p })
@@ -194,6 +215,26 @@ export const useStore = create<State>((set, get) => ({
     get().recompute()
   },
   setLog: (log) => { set({ log }); get().recompute() },
+
+  addCardToDeck: (card) => set({ hand: [...get().hand, { ...card, uid: crypto.randomUUID() }] }),
+  removeHandCard: (uid) => set({ hand: get().hand.filter((c) => c.uid !== uid) }),
+  setEffects: (effects) => set({ effects }),
+  playCard: (uid) => {
+    const card = get().hand.find((c) => c.uid === uid)
+    if (!card) return
+    set({ hand: get().hand.filter((c) => c.uid !== uid) })
+    const now = Date.now()
+    if (card.effect === 'time') { set({ bonusMinutes: get().bonusMinutes + (card.minutes || 0) }); return }
+    if (card.effect === 'manual') return
+    if (card.effect === 'veto') {
+      const log = get().log
+      for (let i = log.length - 1; i >= 0; i--) if (log[i].status === 'pending') { get().answerQuestion(log[i].id, '(vetoed)'); break }
+    }
+    const until = card.minutes ? now + card.minutes * 60000 : undefined
+    const kind: ActiveEffect['kind'] = card.effect === 'askLock' ? 'askLock' : card.effect === 'delay' ? 'delay' : card.effect === 'veto' ? 'veto' : 'notify'
+    const eff: ActiveEffect = { id: crypto.randomUUID(), kind, cardName: card.name, by: get().name || 'Hider', text: card.text, until, ts: now }
+    set({ effects: [...get().effects.filter((e) => !e.until || e.until > now), eff] })
+  },
   applyRemoteState: (p) => {
     const patch: Partial<State> = {}
     if (p.round !== undefined) patch.round = p.round

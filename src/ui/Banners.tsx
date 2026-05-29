@@ -1,29 +1,36 @@
+import { useEffect, useState } from 'react'
 import { useStore } from '../store'
 
-// Status banners under the role bar: waiting for players, and (for the hider)
-// incoming questions to answer.
+// Status banners under the role bar: waiting for players, incoming questions
+// (hider), and active played-card effects (everyone).
 export default function Banners() {
   const role = useStore((s) => s.myRole())
   const roomCode = useStore((s) => s.roomCode)
   const active = useStore((s) => s.gameActive())
   const present = useStore((s) => s.presentRoles())
   const pending = useStore((s) => s.log.filter((e) => e.status === 'pending').length)
+  const effects = useStore((s) => s.effects)
+  const [, setN] = useState(0)
+  useEffect(() => { const i = setInterval(() => setN((n) => n + 1), 1000); return () => clearInterval(i) }, [])
 
+  const now = Date.now()
   const items: { key: string; text: string; color: string }[] = []
+
   if (roomCode && !active) {
     const need: string[] = []
     if (!present.hider) need.push('a hider')
     if (!present.seeker) need.push('a seeker')
     items.push({ key: 'wait', text: `Waiting for ${need.join(' and ')} to join the room`, color: 'var(--warn)' })
   }
-  if (role === 'hider' && pending > 0) {
-    items.push({ key: 'pend', text: `${pending} question${pending > 1 ? 's' : ''} to answer (Answer tab)`, color: 'var(--hider)' })
-  }
-  if (role === 'seeker' && pending > 0) {
-    items.push({ key: 'wait2', text: `Waiting for the hider to answer ${pending} question${pending > 1 ? 's' : ''}`, color: 'var(--muted)' })
-  }
-  if (!items.length) return null
+  if (role === 'hider' && pending > 0) items.push({ key: 'pend', text: `${pending} question${pending > 1 ? 's' : ''} to answer (Answer tab)`, color: 'var(--hider)' })
+  if (role === 'seeker' && pending > 0) items.push({ key: 'wait2', text: `Waiting for the hider to answer ${pending} question${pending > 1 ? 's' : ''}`, color: 'var(--muted)' })
 
+  for (const e of effects.filter((x) => !x.until || x.until > now)) {
+    const lock = e.kind === 'askLock' || e.kind === 'delay'
+    items.push({ key: 'eff-' + e.id, text: `Card played: ${e.cardName}${e.until ? ' (' + cd(e.until) + ')' : ''}`, color: lock ? 'var(--hider)' : 'var(--accent)' })
+  }
+
+  if (!items.length) return null
   return (
     <div style={{
       position: 'absolute', top: 'calc(env(safe-area-inset-top, 0px) + 44px)', left: 8, right: 8,
@@ -37,4 +44,9 @@ export default function Banners() {
       ))}
     </div>
   )
+}
+
+function cd(until: number): string {
+  const s = Math.max(0, Math.round((until - Date.now()) / 1000))
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
 }

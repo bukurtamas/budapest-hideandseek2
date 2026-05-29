@@ -1,12 +1,12 @@
 import { useStore } from './store'
 import { initFirebase, isFirebaseConfigured, type DbApi } from './firebase'
-import type { LogEntry, PlayerState } from './types/game'
+import type { ActiveEffect, LogEntry, PlayerState } from './types/game'
 
 let api: DbApi | null = null
 let currentRoom: string | null = null
 let offFns: Array<() => void> = []
 let applyingRemote = false
-const last = { me: '', state: '', log: '' }
+const last = { me: '', state: '', log: '', effects: '' }
 
 export async function startSync() {
   if (!isFirebaseConfigured) return
@@ -51,6 +51,15 @@ function bindRoom(code: string | null) {
     last.log = JSON.stringify(arr)
   }))
 
+  offFns.push(onValue(ref(db, `rooms/${code}/effects`), (snap) => {
+    const v = (snap.val() || {}) as Record<string, ActiveEffect>
+    const arr = Object.values(v).sort((a, b) => a.ts - b.ts)
+    applyingRemote = true
+    useStore.getState().setEffects(arr)
+    applyingRemote = false
+    last.effects = JSON.stringify(arr)
+  }))
+
   // Drop my presence when the tab closes.
   onDisconnect(ref(db, `rooms/${code}/players/${myId}`)).remove()
   void remove // keep type import used
@@ -83,6 +92,14 @@ function onStoreChange(s: ReturnType<typeof useStore.getState>) {
   for (const e of s.log) logMap[e.id] = e
   const logJson = JSON.stringify(s.log)
   if (logJson !== last.log) { last.log = logJson; void set(ref(db, `rooms/${code}/log`), logMap) }
+
+  // Played-card effects are the hider's domain (only the hider writes them).
+  if (s.myRole() === 'hider') {
+    const effMap: Record<string, ActiveEffect> = {}
+    for (const e of s.effects) effMap[e.id] = e
+    const effJson = JSON.stringify(s.effects)
+    if (effJson !== last.effects) { last.effects = effJson; void set(ref(db, `rooms/${code}/effects`), effMap) }
+  }
 }
 
 // Firebase rejects `undefined` values — drop them.

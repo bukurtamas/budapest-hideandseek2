@@ -64,6 +64,16 @@ export const DEFAULT_SETTINGS: Settings = {
   questionCooldownMin: 5
 }
 
+export interface ActiveEffect {
+  id: string
+  kind: 'askLock' | 'delay' | 'notify' | 'veto'
+  cardName: string
+  by: string
+  text?: string
+  until?: number // epoch ms when the effect/timer expires
+  ts: number
+}
+
 export interface PlayerState {
   id: string
   name: string
