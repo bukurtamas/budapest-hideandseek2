@@ -389,7 +389,7 @@ function SetTab() {
           <button className={s.showPoi ? 'primary' : ''} onClick={() => s.setShowPoi(!s.showPoi)}>{s.showPoi ? 'On' : 'Off'}</button>
         </Row>
         <Row label="Room code"><input value={s.roomCode ?? ''} onChange={(e) => s.setRoom(e.target.value || null)} placeholder="e.g. BUDA42" /></Row>
-        <button onClick={() => s.leaveGame()}>Back to lobby</button>
+        <button onClick={() => s.leaveGame()}>Back to waiting room</button>
       </fieldset>
     </div>
   )

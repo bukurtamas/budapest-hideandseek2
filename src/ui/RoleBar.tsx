@@ -21,7 +21,9 @@ export default function RoleBar() {
   }, [phase])
 
   const isHider = role === 'hider'
-  const timer = phaseTimer(phase, phaseStart, settings.hideMinutes, settings.seekMinutes)
+  // Time bonuses played by the hider extend their displayed time.
+  const tb = isHider ? bonus : 0
+  const timer = phaseTimer(phase, phaseStart, settings.hideMinutes + tb, settings.seekMinutes + tb)
 
   return (
     <div style={{
@@ -35,7 +37,7 @@ export default function RoleBar() {
         {isHider ? 'HIDER' : 'SEEKER'}
       </span>
       <span style={chip}>Round {round}</span>
-      {isHider && bonus > 0 && <span style={{ ...chip, color: 'var(--seeker)', fontWeight: 700 }}>+{bonus} min</span>}
+      {isHider && bonus > 0 && <span style={{ ...chip, color: 'var(--seeker)', fontWeight: 700 }} title="time bonus included in the timer">+{bonus}</span>}
       {timer && (
         <span style={{ ...chip, background: timer.over ? '#7f1d1d' : timer.warn ? 'rgba(245,158,11,.9)' : chip.background, fontWeight: 700 }}>
           {timer.label} {timer.text}

@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
 import type { ActiveEffect, LngLat, LogEntry, Phase, PlayerState, Role, Settings, Team, ComputeResult } from './types/game'
 import { DEFAULT_SETTINGS } from './types/game'
 import type { AppData } from './data/types'
@@ -49,6 +50,7 @@ interface State {
   hand: HandCard[]
   effects: ActiveEffect[] // active played-card effects (hider-written, all read)
   bonusMinutes: number
+  dismissedEffectIds: string[] // locally hidden effect banners
 
   // derived
   myRole: () => Role
@@ -62,6 +64,7 @@ interface State {
   removeHandCard: (uid: string) => void
   playCard: (uid: string) => void
   setEffects: (effects: ActiveEffect[]) => void
+  dismissEffect: (id: string) => void
 
   // actions
   init: () => void
@@ -93,7 +96,7 @@ interface State {
   recompute: () => void
 }
 
-export const useStore = create<State>((set, get) => ({
+export const useStore = create<State>()(persist((set, get) => ({
   playerId: '',
   name: '',
   team: 'A',
@@ -120,6 +123,7 @@ export const useStore = create<State>((set, get) => ({
   hand: [],
   effects: [],
   bonusMinutes: 0,
+  dismissedEffectIds: [],
 
   hidingTeam: () => {
     const { startingTeam, round } = get()
@@ -190,7 +194,7 @@ export const useStore = create<State>((set, get) => ({
   setRound: (n) => set({ round: Math.max(1, n) }),
   setStartingTeam: (t) => set({ startingTeam: t }),
   startPhase: (phase) => set({ phase, phaseStart: phase === 'idle' ? null : Date.now() }),
-  nextRound: () => { set({ round: get().round + 1, phase: 'idle', phaseStart: null, log: [], seekerRef: null, hand: [], effects: [], bonusMinutes: 0 }); get().recompute() },
+  nextRound: () => { set({ round: get().round + 1, phase: 'idle', phaseStart: null, log: [], seekerRef: null, hand: [], effects: [], bonusMinutes: 0, dismissedEffectIds: [] }); get().recompute() },
   patchSettings: (p) => { set({ settings: { ...get().settings, ...p } }); get().recompute() },
   setMyPos: (p) => {
     set({ myPos: p })
@@ -219,20 +223,24 @@ export const useStore = create<State>((set, get) => ({
   addCardToDeck: (card) => set({ hand: [...get().hand, { ...card, uid: crypto.randomUUID() }] }),
   removeHandCard: (uid) => set({ hand: get().hand.filter((c) => c.uid !== uid) }),
   setEffects: (effects) => set({ effects }),
+  dismissEffect: (id) => set({ dismissedEffectIds: [...get().dismissedEffectIds, id] }),
   playCard: (uid) => {
     const card = get().hand.find((c) => c.uid === uid)
     if (!card) return
     set({ hand: get().hand.filter((c) => c.uid !== uid) })
     const now = Date.now()
-    if (card.effect === 'time') { set({ bonusMinutes: get().bonusMinutes + (card.minutes || 0) }); return }
-    if (card.effect === 'manual') return
+    if (card.effect === 'time') set({ bonusMinutes: get().bonusMinutes + (card.minutes || 0) })
     if (card.effect === 'veto') {
       const log = get().log
-      for (let i = log.length - 1; i >= 0; i--) if (log[i].status === 'pending') { get().answerQuestion(log[i].id, '(vetoed)'); break }
+      if (log.length) get().removeEntry(log[log.length - 1].id) // cancel the most recent question
     }
-    const until = card.minutes ? now + card.minutes * 60000 : undefined
-    const kind: ActiveEffect['kind'] = card.effect === 'askLock' ? 'askLock' : card.effect === 'delay' ? 'delay' : card.effect === 'veto' ? 'veto' : 'notify'
-    const eff: ActiveEffect = { id: crypto.randomUUID(), kind, cardName: card.name, by: get().name || 'Hider', text: card.text, until, ts: now }
+    // Every played card produces a notification (auto-expires, also dismissable).
+    const lock = card.effect === 'askLock' || card.effect === 'delay'
+    const kind: ActiveEffect['kind'] = lock ? (card.effect as 'askLock' | 'delay') : card.effect === 'veto' ? 'veto' : 'notify'
+    const durationMin = lock ? (card.minutes || 10) : card.effect === 'notify' ? (card.minutes || 3) : 3
+    const cardName = card.effect === 'veto' ? 'Question vetoed' : card.name
+    const text = card.effect === 'time' ? `Adds ${card.minutes} min to the hider's time.` : card.text
+    const eff: ActiveEffect = { id: crypto.randomUUID(), kind, cardName, by: get().name || 'Hider', text, until: now + durationMin * 60000, ts: now }
     set({ effects: [...get().effects.filter((e) => !e.until || e.until > now), eff] })
   },
   applyRemoteState: (p) => {
@@ -269,4 +277,14 @@ export const useStore = create<State>((set, get) => ({
       })
     }, 120)
   }
+}), {
+  name: 'hideandseek-session',
+  version: 1,
+  // Persist only the session so closing/reopening the app stays in the game.
+  // Live data (log, players, effects) resyncs from Firebase; zone is recomputed.
+  partialize: (s) => ({
+    playerId: s.playerId, name: s.name, team: s.team, roomCode: s.roomCode,
+    startingTeam: s.startingTeam, round: s.round, phase: s.phase, phaseStart: s.phaseStart,
+    settings: s.settings, started: s.started, showPoi: s.showPoi, hand: s.hand, bonusMinutes: s.bonusMinutes
+  })
 }))

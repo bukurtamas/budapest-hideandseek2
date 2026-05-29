@@ -51,3 +51,11 @@ input, select {
 }
 
 .maplibregl-ctrl-attrib { font-size: 10px; }
+
+/* keep the zoom control clear of the status bar / camera island in PWA mode */
+.maplibregl-ctrl-top-right {
+  top: calc(env(safe-area-inset-top, 0px) + 4px);
+  right: calc(env(safe-area-inset-right, 0px) + 4px);
+}
+.maplibregl-ctrl-bottom-right { bottom: env(safe-area-inset-bottom, 0px); }
+.maplibregl-ctrl-bottom-left { bottom: env(safe-area-inset-bottom, 0px); }

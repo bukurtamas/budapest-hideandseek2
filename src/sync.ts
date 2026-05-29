@@ -6,6 +6,7 @@ let api: DbApi | null = null
 let currentRoom: string | null = null
 let offFns: Array<() => void> = []
 let applyingRemote = false
+let lastLogIds = new Set<string>()
 const last = { me: '', state: '', log: '', effects: '' }
 
 export async function startSync() {
@@ -20,10 +21,18 @@ function bindRoom(code: string | null) {
   offFns.forEach((f) => f())
   offFns = []
   currentRoom = code
-  last.me = last.state = last.log = ''
+  // Pre-seed the "last published" markers with the current LOCAL values so that
+  // joining a room never republishes (and thus never clobbers) shared data
+  // before the first snapshot arrives. Presence (me) is still announced.
+  const st = useStore.getState()
+  last.me = ''
+  last.state = JSON.stringify({ round: st.round, startingTeam: st.startingTeam, settings: st.settings, phase: st.phase, phaseStart: st.phaseStart })
+  last.log = JSON.stringify(st.log)
+  last.effects = JSON.stringify(st.effects)
+  lastLogIds = new Set(st.log.map((e) => e.id))
   if (!api || !code) return
-  const { db, ref, onValue, onDisconnect, remove } = api
-  const myId = useStore.getState().playerId
+  const { db, ref, onValue, onDisconnect } = api
+  const myId = st.playerId
 
   offFns.push(onValue(ref(db, `rooms/${code}/players`), (snap) => {
     const v = (snap.val() || {}) as Record<string, PlayerState>
@@ -49,6 +58,7 @@ function bindRoom(code: string | null) {
     useStore.getState().setLog(arr)
     applyingRemote = false
     last.log = JSON.stringify(arr)
+    lastLogIds = new Set(arr.map((e) => e.id))
   }))
 
   offFns.push(onValue(ref(db, `rooms/${code}/effects`), (snap) => {
@@ -62,21 +72,20 @@ function bindRoom(code: string | null) {
 
   // Drop my presence when the tab closes.
   onDisconnect(ref(db, `rooms/${code}/players/${myId}`)).remove()
-  void remove // keep type import used
 }
 
 function onStoreChange(s: ReturnType<typeof useStore.getState>) {
   if (!api) return
   if (s.roomCode !== currentRoom) bindRoom(s.roomCode)
   if (applyingRemote || !s.roomCode) return
-  const { db, ref, set } = api
+  const { db, ref, set, update } = api
   const code = s.roomCode
 
-  // Publish my presence. CRITICAL: the hider's exact position is never sent.
+  // Presence (per-id write, never clobbers others). Hider's position never sent.
   const role = s.myRole()
   const me: PlayerState = {
     id: s.playerId,
-    name: s.name || 'Játékos',
+    name: s.name || 'Player',
     team: s.team,
     pos: role === 'seeker' ? s.myPos ?? undefined : undefined,
     ts: Date.now()
@@ -88,13 +97,20 @@ function onStoreChange(s: ReturnType<typeof useStore.getState>) {
   const stateJson = JSON.stringify(state)
   if (stateJson !== last.state) { last.state = stateJson; void set(ref(db, `rooms/${code}/state`), state) }
 
-  const logMap: Record<string, LogEntry> = {}
-  for (const e of s.log) logMap[e.id] = e
+  // Log: merge individual entries (and delete removed ones) so two devices can
+  // both write without overwriting each other's questions.
   const logJson = JSON.stringify(s.log)
-  if (logJson !== last.log) { last.log = logJson; void set(ref(db, `rooms/${code}/log`), logMap) }
+  if (logJson !== last.log) {
+    last.log = logJson
+    const updates: Record<string, LogEntry | null> = {}
+    for (const e of s.log) updates[e.id] = e
+    for (const id of lastLogIds) if (!s.log.some((e) => e.id === id)) updates[id] = null
+    lastLogIds = new Set(s.log.map((e) => e.id))
+    if (Object.keys(updates).length) void update(ref(db, `rooms/${code}/log`), updates)
+  }
 
   // Played-card effects are the hider's domain (only the hider writes them).
-  if (s.myRole() === 'hider') {
+  if (role === 'hider') {
     const effMap: Record<string, ActiveEffect> = {}
     for (const e of s.effects) effMap[e.id] = e
     const effJson = JSON.stringify(s.effects)
@@ -102,7 +118,7 @@ function onStoreChange(s: ReturnType<typeof useStore.getState>) {
   }
 }
 
-// Firebase rejects `undefined` values — drop them.
+// Firebase rejects `undefined` values - drop them.
 function strip<T extends object>(o: T): Partial<T> {
   const out: Partial<T> = {}
   for (const k of Object.keys(o) as (keyof T)[]) if (o[k] !== undefined) out[k] = o[k]

@@ -25,8 +25,8 @@ const curse = (name: string, effect: CardEffectKind = 'notify', minutes = 10): C
 })
 
 export const CARDS: Card[] = [
-  // Time bonuses
-  time(5), time(10), time(15), time(20), time(30),
+  // Time bonuses (small-game values)
+  time(2), time(4), time(6), time(8), time(12),
 
   // Powerups (official)
   { id: 'pu-veto', name: 'Veto Question', type: 'powerup', effect: 'veto', text: 'Reject the current pending question; seekers must ask another.' },

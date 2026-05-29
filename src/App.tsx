@@ -44,7 +44,7 @@ export default function App() {
   if (!started) return <Lobby />
 
   return (
-    <div style={{ position: 'absolute', inset: 0 }}>
+    <div style={{ position: 'fixed', inset: 0 }}>
       <MapView onReady={setMap} />
       <RoleBar />
       <Banners />
