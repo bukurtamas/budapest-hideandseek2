@@ -24,7 +24,7 @@ export default function RoleBar() {
 
   return (
     <div style={{
-      position: 'absolute', top: 'calc(env(safe-area-inset-top, 0px) + 8px)', left: 8, right: 8,
+      position: 'absolute', top: 'calc(env(safe-area-inset-top, 0px) + 8px)', left: 8, right: 52,
       display: 'flex', gap: 6, alignItems: 'center', pointerEvents: 'none', flexWrap: 'wrap'
     }}>
       <span style={{

@@ -31,7 +31,7 @@ export function applyStoreToMap(map: maplibregl.Map, s: StoreLike) {
     ? { type: 'FeatureCollection', features: [geoCircle(s.myPos, s.settings.hidingRadiusM)] }
     : emptyFC())
   const vis = s.showPoi ? 'visible' : 'none'
-  for (const id of ['lyr-poi', 'lyr-poi-labels']) {
+  for (const id of ['lyr-poi', 'lyr-poi-labels', 'basemap-poi']) {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis)
   }
   updateMarkers(map, s)

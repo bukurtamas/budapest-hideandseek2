@@ -12,7 +12,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg'],
+      includeAssets: ['jetlag.svg'],
       manifest: {
         name: 'Hide + Seek: Budapest',
         short_name: 'Hide + Seek',
@@ -25,8 +25,8 @@ export default defineConfig({
         start_url: './',
         scope: './',
         icons: [
-          { src: 'favicon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
-          { src: 'icon-maskable.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' }
+          { src: 'jetlag.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
+          { src: 'jetlag.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' }
         ]
       },
       workbox: {

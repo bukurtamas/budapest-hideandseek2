@@ -87,6 +87,24 @@ export function addBaseLayers(map: maplibregl.Map, data: AppData) {
     paint: { 'fill-color': '#0b1120', 'fill-opacity': 0.5 }
   })
 
+  // Generic place labels (restaurants, shops, etc.) from the basemap vector
+  // tiles. The greyscale "positron" style ships them in the data but does not
+  // draw them, so we add a muted label layer ourselves (shown when zoomed in).
+  const vectorSrc = Object.keys(map.getStyle().sources).find((id) => (map.getStyle().sources[id] as { type?: string }).type === 'vector')
+  if (vectorSrc) {
+    map.addLayer({
+      id: 'basemap-poi', type: 'symbol', source: vectorSrc, 'source-layer': 'poi', minzoom: 14,
+      layout: {
+        'text-field': ['coalesce', ['get', 'name:latin'], ['get', 'name']],
+        'text-font': ['Noto Sans Regular'],
+        'text-size': 10, 'text-anchor': 'top', 'text-offset': [0, 0.5],
+        'text-optional': true, 'text-max-width': 8,
+        'symbol-sort-key': ['coalesce', ['get', 'rank'], 99]
+      },
+      paint: { 'text-color': '#475569', 'text-halo-color': '#ffffff', 'text-halo-width': 1.2 }
+    })
+  }
+
   map.addLayer({
     id: LYR.boundary, type: 'line', source: SRC.boundary,
     paint: { 'line-color': '#38bdf8', 'line-width': 2.5, 'line-opacity': 0.9 }
@@ -117,7 +135,7 @@ export function addBaseLayers(map: maplibregl.Map, data: AppData) {
     layout: { 'line-cap': 'round', 'line-join': 'round' },
     paint: {
       'line-color': ['coalesce', ['get', 'colour'], '#888'],
-      'line-width': ['match', ['get', 'mode'], 'metro', 4, 'hev', 3.5, 'tram', 2.2, 2],
+      'line-width': ['match', ['get', 'mode'], 'metro', 5, 'hev', 3.5, 'tram', 2.2, 2],
       'line-opacity': 0.9
     }
   })

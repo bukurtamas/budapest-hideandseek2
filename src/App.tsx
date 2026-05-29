@@ -3,12 +3,14 @@ import type maplibregl from 'maplibre-gl'
 import MapView from './map/MapView'
 import { loadData } from './data/load'
 import { addBaseLayers } from './map/baseLayers'
+import { applyStoreToMap } from './map/gameLayers'
 import type { AppData } from './data/types'
 import { useStore } from './store'
-import { useGeolocation, useMapSync } from './hooks'
+import { useGeolocation, useHiderNotify, useMapSync } from './hooks'
 import { startSync } from './sync'
 import RoleBar from './ui/RoleBar'
 import Panel from './ui/Panel'
+import Banners from './ui/Banners'
 import Lobby from './ui/Lobby'
 
 export default function App() {
@@ -29,10 +31,15 @@ export default function App() {
     const pad = 0.06 // matches the grey-overlay rectangle in build-data (MASK_PAD)
     map.setMaxBounds([[b[0] - pad, b[1] - pad], [b[2] + pad, b[3] + pad]])
     map.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding: 24, animate: false })
+    // Render the current zone/shade/positions once the source batch has settled
+    // (the store subscription only fires on later changes, so without this the
+    // initial shade would not appear until the first question).
+    map.once('idle', () => applyStoreToMap(map, useStore.getState()))
   }, [map, data])
 
   useMapSync(map)
   useGeolocation(gps)
+  useHiderNotify()
 
   if (!started) return <Lobby />
 
@@ -40,6 +47,7 @@ export default function App() {
     <div style={{ position: 'absolute', inset: 0 }}>
       <MapView onReady={setMap} />
       <RoleBar />
+      <Banners />
       <Panel />
       {(error || !data) && (
         <div style={{

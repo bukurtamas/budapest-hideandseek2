@@ -215,7 +215,7 @@ async function getRail(boundary, bbox) {
   // --- routes (lines) from relations ---
   const linesByKey = new Map() // `${mode}:${ref}` -> {ref,mode,colour,name,coords:[[...]]}
   const stops = new Map()      // nodeId -> {name,lon,lat,lines:Set,modes:Set}
-  const m2Ordered = []         // stitched polyline per M2 direction relation
+  const orderedByKey = new Map() // `${mode}:${ref}` -> [stitched polyline per direction relation]
 
   function addRouteRelation(el) {
     const mode = classifyMode(el.tags || {})
@@ -246,31 +246,32 @@ async function getRail(boundary, bbox) {
         s.lines.add(ref); s.modes.add(mode)
       }
     }
-    if (ref === 'M2') m2Ordered.push(stitchWays(relWays))
+    if (!orderedByKey.has(key)) orderedByKey.set(key, [])
+    orderedByKey.get(key).push(stitchWays(relWays))
   }
   for (const el of q1.elements) if (el.type === 'relation') addRouteRelation(el)
   for (const el of q2.elements) if (el.type === 'relation') addRouteRelation(el)
 
-  // --- heavy-rail tracks + stations from infra query ---
-  const railLineCoords = []
+  // --- heavy-rail STATIONS from infra query (the messy way-based track bundle
+  //     is intentionally dropped; suburban S/G/Z route relations give clean
+  //     single-track lines, and rail stations are snapped onto them below) ---
   for (const el of q3.elements) {
-    if (el.type === 'way' && Array.isArray(el.geometry)) {
-      railLineCoords.push(el.geometry.map((g) => [g.lon, g.lat]))
-    } else if (el.type === 'node' && el.tags?.name) {
+    if (el.type === 'node' && el.tags?.name) {
       const id = 'rail-' + el.id
       if (!stops.has(id)) stops.set(id, { name: el.tags.name, lon: el.lon, lat: el.lat, lines: new Set(), modes: new Set() })
       stops.get(id).modes.add('rail')
     }
   }
-  if (railLineCoords.length) {
-    linesByKey.set('rail:MÁV', { ref: 'Vasút', mode: 'rail', name: 'Vasútvonalak', colour: MODE_FALLBACK_COLOR.rail, coords: railLineCoords })
-  }
 
   // --- build line features (bbox-clipped) ---
+  const clipBox = [bbox[0] - pad, bbox[1] - pad, bbox[2] + pad, bbox[3] + pad]
   const lineFeatures = []
   for (const L of linesByKey.values()) {
-    const parts = []
-    for (const c of L.coords) parts.push(...clipLine(c, [bbox[0] - pad, bbox[1] - pad, bbox[2] + pad, bbox[3] + pad]))
+    let parts = []
+    // one track only: the longest stitched single direction (stops snap onto it)
+    const single = (orderedByKey.get(`${L.mode}:${L.ref}`) || []).filter((l) => l && l.length >= 2).sort((a, b) => b.length - a.length)[0]
+    if (single) parts = clipLine(single, clipBox)
+    if (!parts.length) for (const c of L.coords) parts.push(...clipLine(c, clipBox))
     if (!parts.length) continue
     const feat = turf.multiLineString(parts, {
       ref: L.ref, mode: L.mode, name: L.name, colour: L.colour
@@ -302,10 +303,32 @@ async function getRail(boundary, bbox) {
     // primary mode for styling priority: metro > hev > tram > rail
     mode: ['metro', 'hev', 'tram', 'rail'].find((m) => s.modes.has(m)) || 'rail'
   }))
-  await writeJSON('rail-stops.geojson', turf.featureCollection(stopFeatures))
-  log(`  ${stopFeatures.length} stops (inside boundary)`)
+  // snap each stop onto the nearest serving line so it sits on the track (not beside it)
+  const lineByRef = new Map()
+  for (const lf of lineFeatures) {
+    if (!lineByRef.has(lf.properties.ref)) lineByRef.set(lf.properties.ref, [])
+    lineByRef.get(lf.properties.ref).push(lf)
+  }
+  const railLines = lineFeatures.filter((lf) => lf.properties.mode === 'rail')
+  let snapped = 0
+  for (const sf of stopFeatures) {
+    const candidates = []
+    for (const r of sf.properties.lines || []) for (const lf of lineByRef.get(r) || []) candidates.push(lf)
+    if (!candidates.length && sf.properties.modes.includes('rail')) candidates.push(...railLines)
+    let best = null, bestD = Infinity
+    for (const lf of candidates) {
+      try {
+        const sn = turf.nearestPointOnLine(lf, sf, { units: 'kilometers' })
+        if (sn.properties.dist < bestD) { bestD = sn.properties.dist; best = sn.geometry.coordinates }
+      } catch { /* skip bad geometry */ }
+    }
+    if (best && bestD <= 0.25) { sf.geometry.coordinates = best; snapped++ }
+  }
 
-  return { lineFeatures, stopFeatures, m2Ordered }
+  await writeJSON('rail-stops.geojson', turf.featureCollection(stopFeatures))
+  log(`  ${stopFeatures.length} stops (${snapped} snapped onto lines)`)
+
+  return { lineFeatures, stopFeatures, orderedByKey }
 }
 
 function validHideStops(stopFeatures) {
@@ -332,12 +355,12 @@ async function buildHidingZone(stopFeatures, boundary) {
   log(`  zone from ${valid.length}/${stopFeatures.length} valid stops`)
 }
 
-async function buildM2Excluded(m2Ordered, stopFeatures) {
+async function buildM2Excluded(metroOrdered, stopFeatures) {
   log('• M2 closed segment (Deák -> Örs) along the real track…')
   const find = (nm) => stopFeatures.find((s) => norm(s.properties.name) === norm(nm))
   const deak = find('Deák Ferenc tér')
   const ors = find('Örs vezér tere')
-  const m2line = (m2Ordered || []).filter((l) => l && l.length >= 2).sort((a, b) => b.length - a.length)[0]
+  const m2line = ((metroOrdered && metroOrdered.get('metro:M2')) || []).filter((l) => l && l.length >= 2).sort((a, b) => b.length - a.length)[0]
   let seg
   if (m2line && deak && ors) {
     seg = turf.lineSlice(turf.point(deak.geometry.coordinates), turf.point(ors.geometry.coordinates), turf.lineString(m2line))
@@ -407,8 +430,8 @@ async function main() {
   const boundary = await getBoundary()
   const bbox = turf.bbox(boundary) // [W,S,E,N]
   await getDistricts()
-  const { stopFeatures, m2Ordered } = await getRail(boundary, bbox)
-  await buildM2Excluded(m2Ordered, stopFeatures)
+  const { stopFeatures, orderedByKey } = await getRail(boundary, bbox)
+  await buildM2Excluded(orderedByKey, stopFeatures)
   await getPOI(boundary, bbox)
   await buildMask(boundary, bbox)
   await buildHidingZone(stopFeatures, boundary)

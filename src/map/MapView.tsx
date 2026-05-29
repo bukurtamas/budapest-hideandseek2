@@ -17,8 +17,9 @@ export default function MapView({ onReady }: Props) {
 
     const map = new maplibregl.Map({
       container: containerRef.current,
-      // "liberty" shows generic POIs (shops, restaurants) when zoomed in
-      style: 'https://tiles.openfreemap.org/styles/liberty',
+      // greyscale style: grey roads (not confused with tram lines), no 3D
+      // building extrusions, lighter to render
+      style: 'https://tiles.openfreemap.org/styles/positron',
       center: BUDAPEST_CENTER,
       zoom: 11,
       minZoom: 10,

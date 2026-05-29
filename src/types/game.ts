@@ -15,12 +15,17 @@ export const THERMO_DISTANCES_KM = [1, 5]
 export type MatchKind = 'district' | 'station' | 'line' | 'poi'
 export type MeasureFeature = 'rail-station' | 'district-border' | 'city-border' | 'poi'
 
+export type QuestionStatus = 'pending' | 'answered'
+
 export interface LogEntry {
   id: string
   ts: number
   category: Category
-  label: string // human-readable Hungarian summary
+  label: string // human-readable summary
   active: boolean // included in the zone computation (toggle / undo)
+  status: QuestionStatus // pending = asked by seeker, awaiting hider; answered = hider replied
+  askedBy?: string // seeker name
+  answeredAt?: number
 
   // seeker reference position at ask time (lng,lat)
   seeker?: LngLat
@@ -38,8 +43,8 @@ export interface LogEntry {
   // poi category (when matchKind/measureFeature === 'poi')
   poiCategory?: string
 
-  // result
-  answer: boolean | 'hotter' | 'colder' | 'closer' | 'farther' | null
+  // result (string covers manual tentacle/photo answers)
+  answer: boolean | 'hotter' | 'colder' | 'closer' | 'farther' | string | null
   approx?: boolean // region is approximate (e.g. nearest-line)
 }
 
