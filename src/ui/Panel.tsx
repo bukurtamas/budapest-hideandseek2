@@ -41,10 +41,10 @@ export default function Panel() {
 
   return (
     <div style={{
-      position: 'absolute', left: 0, right: 0, bottom: 0,
+      position: 'absolute', left: 0, right: 0, bottom: 'env(safe-area-inset-bottom, 0px)',
       background: 'var(--panel)', borderTop: '1px solid var(--line)',
       borderTopLeftRadius: 16, borderTopRightRadius: 16,
-      boxShadow: '0 -4px 20px rgba(0,0,0,.4)', paddingBottom: 'env(safe-area-inset-bottom, 0px)'
+      boxShadow: '0 -4px 20px rgba(0,0,0,.4)'
     }}>
       <PhaseBar />
       <div style={{ display: 'flex', alignItems: 'center', padding: '6px 10px', gap: 6 }}>

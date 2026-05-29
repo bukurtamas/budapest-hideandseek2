@@ -17,14 +17,12 @@
 
 html, body, #root {
   margin: 0;
-  width: 100vw;
-  height: 100vh;
-  height: 100dvh;
+  width: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
   background: var(--bg);
   overscroll-behavior: none;
 }
-
-#root { display: flex; flex-direction: column; }
 
 button {
   font: inherit;

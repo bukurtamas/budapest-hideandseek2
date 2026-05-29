@@ -27,10 +27,10 @@ export default function Lobby() {
   const canEnter = (s.name || '').trim().length > 0
 
   return (
-    <div style={{ position: 'fixed', inset: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', background: 'var(--bg)' }}>
+    <div style={{ minHeight: '100dvh', background: 'var(--bg)' }}>
       <div style={{
         maxWidth: 460, margin: '0 auto', display: 'grid', gap: 16,
-        padding: 'calc(env(safe-area-inset-top, 0px) + 20px) 16px calc(env(safe-area-inset-bottom, 0px) + 64px)'
+        padding: 'calc(env(safe-area-inset-top, 0px) + 20px) 16px calc(env(safe-area-inset-bottom, 0px) + 24px)'
       }}>
         <header style={{ textAlign: 'center' }}>
           <h1 style={{ margin: '8px 0 2px', fontSize: 24 }}>Hide + Seek: Budapest</h1>
