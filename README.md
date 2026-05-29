@@ -1,6 +1,6 @@
 # Hide + Seek: Budapest
 
-A free, mobile-first PWA companion map for playing the [Jetlag: The Game](https://jetlag.com)
+A free, mobile-first PWA companion map for playing the [Jetlag: The Game](https://www.lifack.ch/)
 **Hide and Seek** board game in a real city. It is built for the metric "small" game
 in Budapest, restricted to rail-bound transit (metro, HEV, tram, train) inside the city
 limits, but it is written so it can be re-pointed at almost any city and any set of
