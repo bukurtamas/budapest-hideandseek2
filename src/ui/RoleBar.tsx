@@ -21,9 +21,11 @@ export default function RoleBar() {
   }, [phase])
 
   const isHider = role === 'hider'
-  // Time bonuses played by the hider extend their displayed time.
+  // Time bonuses played by the hider adjust their displayed time. How depends
+  // on the mode: a non-zero limit counts down (bonus is taken off the time
+  // remaining); a zero limit counts up (bonus is added to the elapsed time).
   const tb = isHider ? bonus : 0
-  const timer = phaseTimer(phase, phaseStart, settings.hideMinutes + tb, settings.seekMinutes + tb)
+  const timer = phaseTimer(phase, phaseStart, settings.hideMinutes, settings.seekMinutes, tb)
 
   return (
     <div style={{
@@ -37,7 +39,7 @@ export default function RoleBar() {
         {isHider ? 'HIDER' : 'SEEKER'}
       </span>
       <span style={chip}>Round {round}</span>
-      {isHider && bonus > 0 && <span style={{ ...chip, color: 'var(--seeker)', fontWeight: 700 }} title="time bonus included in the timer">+{bonus}</span>}
+      {isHider && bonus > 0 && <span style={{ ...chip, color: 'var(--seeker)', fontWeight: 700 }} title={settings.seekMinutes > 0 ? 'time bonus taken off the remaining time' : 'time bonus added to the elapsed time'}>+{bonus}</span>}
       {timer && (
         <span style={{ ...chip, background: timer.over ? '#7f1d1d' : timer.warn ? 'rgba(245,158,11,.9)' : chip.background, fontWeight: 700 }}>
           {timer.label} {timer.text}
@@ -54,21 +56,28 @@ const chip: React.CSSProperties = {
   background: 'rgba(15,23,42,.85)', borderRadius: 999, padding: '5px 10px', fontSize: 12, color: 'var(--text)'
 }
 
-function phaseTimer(phase: string, start: number | null, hideMin: number, seekMin: number) {
+function phaseTimer(phase: string, start: number | null, hideMin: number, seekMin: number, bonusMin: number) {
   if ((phase !== 'hiding' && phase !== 'seeking') || !start) return null
-  const limit = (phase === 'hiding' ? hideMin : seekMin) * 60
+  const limitMin = phase === 'hiding' ? hideMin : seekMin
+  const label = phase === 'hiding' ? 'Hiding' : 'Seeking'
   const elapsed = Math.floor((Date.now() - start) / 1000)
-  const remaining = limit - elapsed
-  const over = remaining < 0
-  const abs = Math.abs(remaining)
-  const mm = String(Math.floor(abs / 60)).padStart(2, '0')
-  const ss = String(abs % 60).padStart(2, '0')
-  return {
-    label: phase === 'hiding' ? 'Hiding' : 'Seeking',
-    text: `${over ? '+' : ''}${mm}:${ss}`,
-    warn: !over && remaining < 300,
-    over
+  const bonus = bonusMin * 60
+
+  // Limit 0 => open-ended: the clock counts up and the time bonus is added on top.
+  if (limitMin <= 0) {
+    return { label, text: clock(elapsed + bonus), warn: false, over: false }
   }
+
+  // Limit > 0 => countdown: the time bonus is taken off the remaining time.
+  const remaining = limitMin * 60 - elapsed - bonus
+  const over = remaining < 0
+  return { label, text: `${over ? '+' : ''}${clock(Math.abs(remaining))}`, warn: !over && remaining < 300, over }
+}
+
+function clock(totalSec: number): string {
+  const mm = String(Math.floor(totalSec / 60)).padStart(2, '0')
+  const ss = String(totalSec % 60).padStart(2, '0')
+  return `${mm}:${ss}`
 }
 
 function fmtArea(km2: number): string {
