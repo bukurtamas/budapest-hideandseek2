@@ -31,7 +31,8 @@ export default function MapView({ onReady }: Props) {
     mapRef.current = map
     if (import.meta.env.DEV) (window as unknown as { __map?: maplibregl.Map }).__map = map
 
-    map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right')
+    // Attribution is shown in the Settings tab instead of on the map (it
+    // otherwise overlaps the bottom panel UI).
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
 
     map.on('load', () => onReady?.(map))
