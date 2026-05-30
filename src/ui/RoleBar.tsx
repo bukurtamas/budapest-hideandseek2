@@ -3,7 +3,6 @@ import { useStore } from '../store'
 
 export default function RoleBar() {
   const role = useStore((s) => s.myRole())
-  const round = useStore((s) => s.round)
   const area = useStore((s) => s.areaKm2)
   const empty = useStore((s) => s.empty)
   const computing = useStore((s) => s.computing)
@@ -38,8 +37,7 @@ export default function RoleBar() {
       }}>
         {isHider ? 'HIDER' : 'SEEKER'}
       </span>
-      <span style={chip}>Round {round}</span>
-      {isHider && bonus > 0 && <span style={{ ...chip, color: 'var(--seeker)', fontWeight: 700 }} title={settings.seekMinutes > 0 ? 'time bonus taken off the remaining time' : 'time bonus added to the elapsed time'}>+{bonus}</span>}
+      {isHider && bonus > 0 &&<span style={{ ...chip, color: 'var(--seeker)', fontWeight: 700 }} title={settings.seekMinutes > 0 ? 'time bonus taken off the remaining time' : 'time bonus added to the elapsed time'}>+{bonus}</span>}
       {timer && (
         <span style={{ ...chip, background: timer.over ? '#7f1d1d' : timer.warn ? 'rgba(245,158,11,.9)' : chip.background, fontWeight: 700 }}>
           {timer.label} {timer.text}

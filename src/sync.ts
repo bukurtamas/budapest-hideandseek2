@@ -18,15 +18,19 @@ export async function startSync() {
 }
 
 function bindRoom(code: string | null) {
+  const st = useStore.getState()
+  // Leaving the previous room: drop our presence there so rooms stay independent.
+  if (api && currentRoom && currentRoom !== code) {
+    api.remove(api.ref(api.db, `rooms/${currentRoom}/players/${st.playerId}`)).catch(() => {})
+  }
   offFns.forEach((f) => f())
   offFns = []
   currentRoom = code
   // Pre-seed the "last published" markers with the current LOCAL values so that
   // joining a room never republishes (and thus never clobbers) shared data
   // before the first snapshot arrives. Presence (me) is still announced.
-  const st = useStore.getState()
   last.me = ''
-  last.state = JSON.stringify({ round: st.round, startingTeam: st.startingTeam, settings: st.settings, phase: st.phase, phaseStart: st.phaseStart })
+  last.state = JSON.stringify({ startingTeam: st.startingTeam, settings: st.settings, phase: st.phase, phaseStart: st.phaseStart })
   last.log = JSON.stringify(st.log)
   last.effects = JSON.stringify(st.effects)
   lastLogIds = new Set(st.log.map((e) => e.id))
@@ -93,7 +97,7 @@ function onStoreChange(s: ReturnType<typeof useStore.getState>) {
   const meJson = JSON.stringify({ ...me, ts: 0 })
   if (meJson !== last.me) { last.me = meJson; write(set(ref(db, `rooms/${code}/players/${s.playerId}`), strip(me)), 'players') }
 
-  const state = { round: s.round, startingTeam: s.startingTeam, settings: s.settings, phase: s.phase, phaseStart: s.phaseStart }
+  const state = { startingTeam: s.startingTeam, settings: s.settings, phase: s.phase, phaseStart: s.phaseStart }
   const stateJson = JSON.stringify(state)
   if (stateJson !== last.state) { last.state = stateJson; write(set(ref(db, `rooms/${code}/state`), strip(state)), 'state') }
 

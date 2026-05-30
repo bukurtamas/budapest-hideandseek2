@@ -140,16 +140,25 @@ function nearestLine(ctx: Ctx, p: LngLat): AnyFeat | null {
   return best
 }
 
+// Half-plane of points closer to one end of the from->to segment than the other.
+// `side: 'to'` keeps the half containing `to` (used for "hotter"); `'from'` the
+// other. The result is verified to actually contain the target point and flipped
+// if the winding put it on the wrong side, so the thermometer can never invert.
 function halfPlane(from: LngLat, to: LngLat, side: 'to' | 'from'): AnyFeat {
+  const target = side === 'to' ? to : from
   const brg = turf.bearing(from, to)
   const mid = turf.midpoint(from, to)
-  const BIG = 80
-  const a = turf.destination(mid, BIG, brg + 90, { units: 'kilometers' }).geometry.coordinates
-  const b = turf.destination(mid, BIG, brg - 90, { units: 'kilometers' }).geometry.coordinates
+  const BIG = 200
+  const km = { units: 'kilometers' as const }
+  const a = turf.destination(mid, BIG, brg + 90, km).geometry.coordinates
+  const b = turf.destination(mid, BIG, brg - 90, km).geometry.coordinates
   const push = side === 'to' ? brg : brg + 180
-  const c = turf.destination(turf.point(b), 2 * BIG, push, { units: 'kilometers' }).geometry.coordinates
-  const d = turf.destination(turf.point(a), 2 * BIG, push, { units: 'kilometers' }).geometry.coordinates
-  return turf.polygon([[a, b, c, d, a]])
+  const ext = (base: number[], bearing: number) => turf.destination(turf.point(base), 2 * BIG, bearing, km).geometry.coordinates
+  let poly = turf.polygon([[a, b, ext(b, push), ext(a, push), a]])
+  if (!turf.booleanPointInPolygon(turf.point(target), poly)) {
+    poly = turf.polygon([[a, b, ext(b, push + 180), ext(a, push + 180), a]])
+  }
+  return poly
 }
 
 function minDistToLines(p: LngLat, line: AnyFeat): number {
@@ -170,7 +179,15 @@ function constraintFor(entry: LogEntry, ctx: Ctx): Constraint | null {
     }
     case 'matching': {
       if (!entry.seeker || typeof entry.answer !== 'boolean') return null
-      if (entry.matchKind === 'district') return yes(containingDistrict(ctx, entry.seeker), entry.answer)
+      if (entry.matchKind === 'district') {
+        // The hider confirms or picks their own district, so border GPS jitter
+        // cannot misfire. When known, pin the zone to exactly that district.
+        if (entry.hiderDistrict != null) {
+          const d = ctx.districts.features.find((f) => (f.properties as { num?: number }).num === entry.hiderDistrict)
+          return d ? { op: 'intersect', region: d as AnyFeat } : null
+        }
+        return yes(containingDistrict(ctx, entry.seeker), entry.answer)
+      }
       if (entry.matchKind === 'station') {
         const i = nearestStopIndex(ctx, entry.seeker)
         const cell = ctx.cells[i]
@@ -191,6 +208,8 @@ function constraintFor(entry: LogEntry, ctx: Ctx): Constraint | null {
     }
     case 'thermometer': {
       if (!entry.from || !entry.to || (entry.answer !== 'hotter' && entry.answer !== 'colder')) return null
+      // No real movement => no usable direction, skip it.
+      if (turf.distance(entry.from, entry.to, { units: 'kilometers' }) < 0.02) return null
       const region = halfPlane(entry.from, entry.to, entry.answer === 'hotter' ? 'to' : 'from')
       return { op: 'intersect', region }
     }

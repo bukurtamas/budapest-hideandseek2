@@ -38,6 +38,8 @@ export interface LogEntry {
   thermoMinKm?: number
   // matching
   matchKind?: MatchKind
+  // district the hider confirmed/selected (matchKind === 'district')
+  hiderDistrict?: number
   // measuring
   measureFeature?: MeasureFeature
   // poi category (when matchKind/measureFeature === 'poi')

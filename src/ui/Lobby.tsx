@@ -47,7 +47,7 @@ export default function Lobby() {
             <TeamPick value={s.team} onChange={(t) => s.setIdentity(s.name, t)} />
           </Field>
           <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>
-            In round {s.round} you will be the{' '}
+            You will be the{' '}
             <b style={{ color: role === 'hider' ? 'var(--hider)' : '#f97316' }}>{role === 'hider' ? 'Hider' : 'Seeker'}</b>.
           </p>
         </Box>
@@ -75,7 +75,7 @@ export default function Lobby() {
         </Box>
 
         <Box title="Game settings">
-          <Field label="Team hiding first"><TeamPick value={s.startingTeam} onChange={s.setStartingTeam} /></Field>
+          <Field label="Hiding team"><TeamPick value={s.startingTeam} onChange={s.setStartingTeam} /></Field>
           <Field label="Hiding (min)"><Num value={s.settings.hideMinutes} onChange={(v) => s.patchSettings({ hideMinutes: v })} /></Field>
           <Field label="Seeking limit (min)"><Num value={s.settings.seekMinutes} onChange={(v) => s.patchSettings({ seekMinutes: v })} /></Field>
           <Field label="Hiding zone radius (m)"><Num value={s.settings.hidingRadiusM} onChange={(v) => s.patchSettings({ hidingRadiusM: v })} /></Field>

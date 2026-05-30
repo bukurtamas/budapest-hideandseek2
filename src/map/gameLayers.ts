@@ -8,7 +8,6 @@ export interface StoreLike {
   shade: Feature | null
   playerId: string
   myPos: LngLat | null
-  seekerRef: LngLat | null
   showPoi: boolean
   settings: { hidingRadiusM: number }
   myRole: () => Role
@@ -22,7 +21,6 @@ const emptyFC = (): FeatureCollection => ({ type: 'FeatureCollection', features:
 // ideal for a handful of frequently-moving points.
 let otherMarkers = new Map<string, maplibregl.Marker>()
 let meMarker: maplibregl.Marker | null = null
-let refMarker: maplibregl.Marker | null = null
 let markerMap: maplibregl.Map | null = null
 
 export function applyStoreToMap(map: maplibregl.Map, s: StoreLike) {
@@ -46,7 +44,6 @@ function updateMarkers(map: maplibregl.Map, s: StoreLike) {
   if (markerMap && markerMap !== map) {
     otherMarkers.forEach((m) => m.remove()); otherMarkers = new Map()
     meMarker?.remove(); meMarker = null
-    refMarker?.remove(); refMarker = null
   }
   markerMap = map
 
@@ -64,11 +61,6 @@ function updateMarkers(map: maplibregl.Map, s: StoreLike) {
     if (!meMarker) meMarker = new maplibregl.Marker({ element: dotEl('#2563eb') }).setLngLat(s.myPos).addTo(map)
     else meMarker.setLngLat(s.myPos)
   } else if (meMarker) { meMarker.remove(); meMarker = null }
-
-  if (s.seekerRef) {
-    if (!refMarker) refMarker = new maplibregl.Marker({ element: ringEl() }).setLngLat(s.seekerRef).addTo(map)
-    else refMarker.setLngLat(s.seekerRef)
-  } else if (refMarker) { refMarker.remove(); refMarker = null }
 }
 
 function dotEl(color: string, name?: string): HTMLElement {
@@ -84,11 +76,6 @@ function dotEl(color: string, name?: string): HTMLElement {
     lbl.style.cssText = 'position:absolute;top:18px;left:50%;transform:translateX(-50%);font-size:11px;font-weight:600;color:#0f172a;background:rgba(255,255,255,.85);border-radius:6px;padding:0 4px;white-space:nowrap'
     el.appendChild(lbl)
   }
-  return el
-}
-function ringEl(): HTMLElement {
-  const el = document.createElement('div')
-  el.style.cssText = 'width:18px;height:18px;border-radius:50%;background:rgba(56,189,248,.2);border:2px solid #38bdf8;box-shadow:0 0 0 2px rgba(56,189,248,.25)'
   return el
 }
 function setLabel(el: HTMLElement, name: string) {

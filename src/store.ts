@@ -24,8 +24,7 @@ interface State {
   team: Team
   // session
   roomCode: string | null
-  startingTeam: Team // which team hides in round 1
-  round: number
+  startingTeam: Team // which team hides (the other team seeks)
   phase: Phase
   phaseStart: number | null // epoch ms when the current phase started
   settings: Settings
@@ -76,10 +75,8 @@ interface State {
   requestGps: () => void
   enterGame: () => void
   leaveGame: () => void
-  setRound: (n: number) => void
   setStartingTeam: (t: Team) => void
   startPhase: (phase: Phase) => void
-  nextRound: () => void
   patchSettings: (p: Partial<Settings>) => void
   setMyPos: (p: LngLat | null) => void
   setSeekerRef: (p: LngLat | null) => void
@@ -87,9 +84,9 @@ interface State {
   setPlayers: (players: Record<string, PlayerState>) => void
   addEntry: (e: Omit<LogEntry, 'id' | 'ts' | 'active' | 'status'>) => void
   askQuestion: (q: Omit<LogEntry, 'id' | 'ts' | 'active' | 'status' | 'answer' | 'askedBy' | 'answeredAt'>) => void
-  answerQuestion: (id: string, answer: LogEntry['answer']) => void
+  answerQuestion: (id: string, answer: LogEntry['answer'], extra?: Partial<LogEntry>) => void
   setLog: (log: LogEntry[]) => void
-  applyRemoteState: (p: { round?: number; startingTeam?: Team; settings?: Settings; phase?: Phase; phaseStart?: number | null }) => void
+  applyRemoteState: (p: { startingTeam?: Team; settings?: Settings; phase?: Phase; phaseStart?: number | null }) => void
   toggleEntry: (id: string) => void
   removeEntry: (id: string) => void
   clearLog: () => void
@@ -102,7 +99,6 @@ export const useStore = create<State>()(persist((set, get) => ({
   team: 'A',
   roomCode: null,
   startingTeam: 'A',
-  round: 1,
   phase: 'idle',
   phaseStart: null,
   settings: { ...DEFAULT_SETTINGS },
@@ -125,11 +121,8 @@ export const useStore = create<State>()(persist((set, get) => ({
   bonusMinutes: 0,
   dismissedEffectIds: [],
 
-  hidingTeam: () => {
-    const { startingTeam, round } = get()
-    const other: Team = startingTeam === 'A' ? 'B' : 'A'
-    return round % 2 === 1 ? startingTeam : other
-  },
+  // One game = one round. The starting team hides; the other team seeks.
+  hidingTeam: () => get().startingTeam,
   myRole: () => (get().team === get().hidingTeam() ? 'hider' : 'seeker'),
   presentRoles: () => {
     const ht = get().hidingTeam()
@@ -158,7 +151,9 @@ export const useStore = create<State>()(persist((set, get) => ({
   },
 
   init: () => {
-    if (!get().playerId) set({ playerId: crypto.randomUUID() })
+    // A fresh id per app load (not persisted) so two tabs / devices are always
+    // distinct players and can sit in different rooms at the same time.
+    set({ playerId: crypto.randomUUID() })
     if (import.meta.env.DEV) (window as unknown as { __store?: unknown }).__store = useStore
     if (!worker) {
       worker = new Worker(new URL('./geo/zone.worker.ts', import.meta.url), { type: 'module' })
@@ -176,7 +171,13 @@ export const useStore = create<State>()(persist((set, get) => ({
   },
 
   setIdentity: (name, team) => set({ name, team }),
-  setRoom: (code) => set({ roomCode: code }),
+  setRoom: (code) => {
+    if (code === get().roomCode) return
+    // Rooms are independent: switching to a different room starts a clean game
+    // (the new room's shared data then arrives from Firebase).
+    set({ roomCode: code, log: [], players: {}, effects: [], dismissedEffectIds: [], phase: 'idle', phaseStart: null })
+    get().recompute()
+  },
   setShowPoi: (v) => set({ showPoi: v }),
   setGps: (v) => set({ gpsEnabled: v, gpsError: v ? get().gpsError : null }),
   // Must be called from a user gesture (button click) so mobile shows the prompt.
@@ -185,21 +186,25 @@ export const useStore = create<State>()(persist((set, get) => ({
     set({ gpsError: null })
     navigator.geolocation.getCurrentPosition(
       (pos) => { get().setMyPos([pos.coords.longitude, pos.coords.latitude]); set({ gpsEnabled: true, gpsError: null }) },
-      (err) => set({ gpsEnabled: false, gpsError: gpsErrText(err) }),
+      (err) => {
+        // Only a denied permission is a real problem. A transient
+        // "kCLErrorDomain error 0" should still start tracking (the watch in
+        // useGeolocation will get a fix shortly) instead of showing an error.
+        if (err.code === err.PERMISSION_DENIED) set({ gpsEnabled: false, gpsError: gpsErrText(err) })
+        else set({ gpsEnabled: true, gpsError: null })
+      },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     )
   },
   enterGame: () => set({ started: true }),
   leaveGame: () => set({ started: false }),
-  setRound: (n) => set({ round: Math.max(1, n) }),
   setStartingTeam: (t) => set({ startingTeam: t }),
-  startPhase: (phase) => set({ phase, phaseStart: phase === 'idle' ? null : Date.now() }),
-  nextRound: () => { set({ round: get().round + 1, phase: 'idle', phaseStart: null, log: [], seekerRef: null, hand: [], effects: [], bonusMinutes: 0, dismissedEffectIds: [] }); get().recompute() },
+  startPhase: (phase) => set({ phase, phaseStart: phase === 'idle' || phase === 'done' ? null : Date.now() }),
   patchSettings: (p) => { set({ settings: { ...get().settings, ...p } }); get().recompute() },
   setMyPos: (p) => {
     set({ myPos: p })
-    // default the question reference to my position for seekers
-    if (p && get().myRole() === 'seeker' && !get().seekerRef) set({ seekerRef: p })
+    // The seeker's asking location always tracks their live GPS (no manual pin).
+    if (p && get().myRole() === 'seeker') set({ seekerRef: p })
   },
   setSeekerRef: (p) => set({ seekerRef: p }),
   upsertPlayer: (p) => set({ players: { ...get().players, [p.id]: p } }),
@@ -214,8 +219,8 @@ export const useStore = create<State>()(persist((set, get) => ({
     const entry: LogEntry = { ...q, id: crypto.randomUUID(), ts: Date.now(), active: true, status: 'pending', answer: null, askedBy: get().name || 'Seeker' }
     set({ log: [...get().log, entry] })
   },
-  answerQuestion: (id, answer) => {
-    set({ log: get().log.map((e) => (e.id === id ? { ...e, answer, status: 'answered', answeredAt: Date.now() } : e)) })
+  answerQuestion: (id, answer, extra) => {
+    set({ log: get().log.map((e) => (e.id === id ? { ...e, ...extra, answer, status: 'answered', answeredAt: Date.now() } : e)) })
     get().recompute()
   },
   setLog: (log) => { set({ log }); get().recompute() },
@@ -245,7 +250,6 @@ export const useStore = create<State>()(persist((set, get) => ({
   },
   applyRemoteState: (p) => {
     const patch: Partial<State> = {}
-    if (p.round !== undefined) patch.round = p.round
     if (p.startingTeam) patch.startingTeam = p.startingTeam
     if (p.settings) patch.settings = p.settings
     if (p.phase !== undefined) patch.phase = p.phase
@@ -283,8 +287,8 @@ export const useStore = create<State>()(persist((set, get) => ({
   // Persist only the session so closing/reopening the app stays in the game.
   // Live data (log, players, effects) resyncs from Firebase; zone is recomputed.
   partialize: (s) => ({
-    playerId: s.playerId, name: s.name, team: s.team, roomCode: s.roomCode,
-    startingTeam: s.startingTeam, round: s.round, phase: s.phase, phaseStart: s.phaseStart,
+    name: s.name, team: s.team, roomCode: s.roomCode,
+    startingTeam: s.startingTeam, phase: s.phase, phaseStart: s.phaseStart,
     settings: s.settings, started: s.started, showPoi: s.showPoi, hand: s.hand, bonusMinutes: s.bonusMinutes
   })
 }))

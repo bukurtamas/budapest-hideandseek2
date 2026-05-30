@@ -4,12 +4,15 @@ import {
   RADAR_RADII_KM, THERMO_DISTANCES_KM, type Category, type LngLat, type LogEntry,
   type MatchKind, type MeasureFeature, type Team
 } from '../types/game'
-import { POI_LABEL, type PoiCategory } from '../data/types'
-import { suggestAnswer, type Suggestion } from '../geo/answer'
+import { POI_LABEL, type PoiCategory, type AppData } from '../data/types'
+import { suggestAnswer, districtAt, type Suggestion } from '../geo/answer'
 import { CARDS, CARD_GROUPS } from '../data/cards'
 
 const fmtKm = (km: number) => (km < 1 ? `${Math.round(km * 1000)} m` : `${km} km`)
 const fmtPos = (p: LngLat | null) => (p ? `${p[1].toFixed(5)}, ${p[0].toFixed(5)}` : 'not set')
+
+// Run an action only after the user confirms (used for any significant change).
+const confirmThen = (message: string, fn: () => void) => () => { if (window.confirm(message)) fn() }
 
 type Tab = 'ask' | 'answer' | 'deck' | 'log' | 'pos' | 'set'
 const TAB_LABEL: Record<Tab, string> = { ask: 'Ask', answer: 'Answer', deck: 'Deck', log: 'Log', pos: 'Loc', set: 'Set' }
@@ -74,18 +77,18 @@ function PhaseBar() {
   const phase = useStore((s) => s.phase)
   const hideMin = useStore((s) => s.settings.hideMinutes)
   const startPhase = useStore((s) => s.startPhase)
-  const nextRound = useStore((s) => s.nextRound)
-  let label: string, action: () => void, color: string
-  if (phase === 'hiding') { label = 'Start seeking'; action = () => startPhase('seeking'); color = '#f97316' }
-  else if (phase === 'seeking') { label = 'End round (next round)'; action = () => nextRound(); color = '#b91c1c' }
-  else { label = `Start hiding (${hideMin} min)`; action = () => startPhase('hiding'); color = 'var(--hider)' }
+  let label: string, action: () => void, color: string, disabled = false
+  if (phase === 'hiding') { label = 'Start seeking'; action = confirmThen('Start the seeking phase now?', () => startPhase('seeking')); color = '#f97316' }
+  else if (phase === 'seeking') { label = 'End game'; action = confirmThen('End the game now? This stops the clock.', () => startPhase('done')); color = '#b91c1c' }
+  else if (phase === 'done') { label = 'Game over'; action = () => {}; color = '#334155'; disabled = true }
+  else { label = `Start hiding (${hideMin} min)`; action = confirmThen('Start the hiding phase now?', () => startPhase('hiding')); color = 'var(--hider)' }
   return (
     <div style={{ display: 'flex', gap: 8, padding: '10px 10px 2px' }}>
-      <button onClick={action} style={{
+      <button onClick={action} disabled={disabled} style={{
         flex: 1, padding: '13px', fontSize: 15, fontWeight: 800, letterSpacing: 0.3,
         background: color, color: '#fff', border: 'none', borderRadius: 12, boxShadow: '0 2px 12px rgba(0,0,0,.35)'
       }}>{label}</button>
-      {phase !== 'idle' && <button onClick={() => startPhase('idle')} style={{ padding: '13px 14px' }}>Stop</button>}
+      {(phase === 'hiding' || phase === 'seeking') && <button onClick={confirmThen('Stop and reset the timer?', () => startPhase('idle'))} style={{ padding: '13px 14px' }}>Stop</button>}
     </div>
   )
 }
@@ -102,8 +105,6 @@ const CATS: { id: Category; label: string }[] = [
 // ---- SEEKER: compose and send a question ----
 function AskTab() {
   const ref = useStore((s) => s.seekerRef)
-  const myPos = useStore((s) => s.myPos)
-  const setRef = useStore((s) => s.setSeekerRef)
   const ask = useStore((s) => s.askQuestion)
   const active = useStore((s) => s.gameActive())
   const block = useStore((s) => s.askBlock())
@@ -130,12 +131,8 @@ function AskTab() {
       {!active && <div style={{ color: 'var(--warn)', fontSize: 13 }}>Waiting for the hider to join the room before you can ask.</div>}
       {block.blocked && <div style={{ color: 'var(--hider)', fontSize: 13, fontWeight: 600 }}>Questions locked by "{block.reason}" {countdown(block.until)}</div>}
       <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-        Asker location: <b style={{ color: 'var(--text)' }}>{fmtPos(ref)}</b>
-        {noRef && <div style={{ color: 'var(--warn)' }}>Tap the map, or use your location.</div>}
-      </div>
-      <div style={{ display: 'flex', gap: 6 }}>
-        <button onClick={() => myPos && setRef(myPos)} disabled={!myPos} style={{ flex: 1 }}>Use my location</button>
-        {ref && <button onClick={() => setRef(null)} style={{ flex: 1 }}>Clear</button>}
+        Asking from (your GPS): <b style={{ color: 'var(--text)' }}>{fmtPos(ref)}</b>
+        {noRef && <div style={{ color: 'var(--warn)' }}>Turn on GPS in the Loc tab to ask spatial questions.</div>}
       </div>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -161,7 +158,7 @@ function AskTab() {
         <Section title="After I move, am I hotter or colder?">
           <div style={{ fontSize: 12, color: 'var(--muted)' }}>Start point: <b style={{ color: 'var(--text)' }}>{fmtPos(thermoFrom)}</b></div>
           <Choices value={thermoMin} set={setThermoMin} opts={THERMO_DISTANCES_KM.map((d) => [d, `at least ${fmtKm(d)}`] as [number, string])} />
-          <button onClick={() => setThermoFrom(ref)} disabled={noRef}>Set start point (current asker location)</button>
+          <button onClick={() => setThermoFrom(ref)} disabled={noRef}>Mark start point (your current location)</button>
           <Send disabled={noRef || !thermoFrom || !canSend} onClick={() => { ask({ category: 'thermometer', from: thermoFrom!, to: ref!, thermoMinKm: thermoMin, label: `Thermometer: moved at least ${fmtKm(thermoMin)}` }); flash() }} sent={sent} />
         </Section>
       )}
@@ -200,7 +197,7 @@ function AnswerTab() {
           <div key={e.id} style={{ display: 'grid', gap: 8, padding: '10px', background: 'var(--panel-2)', borderRadius: 10, border: '1px solid var(--accent)' }}>
             <div style={{ fontSize: 13, fontWeight: 600 }}>{e.label}</div>
             {e.askedBy && <div style={{ fontSize: 11, color: 'var(--muted)' }}>from {e.askedBy}</div>}
-            <AnswerControls entry={e} suggestion={sug} onAnswer={(a) => answer(e.id, a)} />
+            <AnswerControls entry={e} suggestion={sug} data={data} myPos={myPos} onAnswer={(a, extra) => answer(e.id, a, extra)} />
             {sug !== null && <div style={{ fontSize: 11, color: 'var(--seeker)' }}>Suggested: {fmtAnswer(sug)} (auto-computed from your location)</div>}
           </div>
         )
@@ -219,8 +216,13 @@ function AnswerTab() {
   )
 }
 
-function AnswerControls({ entry, suggestion, onAnswer }: { entry: LogEntry; suggestion: Suggestion; onAnswer: (a: LogEntry['answer']) => void }) {
+function AnswerControls({ entry, suggestion, data, myPos, onAnswer }: { entry: LogEntry; suggestion: Suggestion; data: AppData | null; myPos: LngLat | null; onAnswer: (a: LogEntry['answer'], extra?: Partial<LogEntry>) => void }) {
   const [text, setText] = useState('')
+  // District matching is answered by confirming/picking the hider's own district
+  // (reliable at borders), not by a raw same/different toggle.
+  if (entry.category === 'matching' && entry.matchKind === 'district' && data) {
+    return <DistrictAnswer entry={entry} data={data} myPos={myPos} onAnswer={onAnswer} />
+  }
   const opts = answerOptions(entry)
   if (opts.length === 0) {
     return (
@@ -237,6 +239,46 @@ function AnswerControls({ entry, suggestion, onAnswer }: { entry: LogEntry; sugg
           {label}{suggestion === val ? ' *' : ''}
         </button>
       ))}
+    </div>
+  )
+}
+
+function DistrictAnswer({ entry, data, myPos, onAnswer }: { entry: LogEntry; data: AppData; myPos: LngLat | null; onAnswer: (a: LogEntry['answer'], extra?: Partial<LogEntry>) => void }) {
+  const seekerD = entry.seeker ? districtAt(data, entry.seeker) : null
+  const myD = myPos ? districtAt(data, myPos) : null
+  const [picking, setPicking] = useState(false)
+  const [pick, setPick] = useState<number | ''>('')
+  const districts = data.districts.features.map((f) => f.properties as { num: number; name: string; label?: string })
+
+  if (picking) {
+    return (
+      <div style={{ display: 'grid', gap: 6 }}>
+        <div style={{ fontSize: 12, color: 'var(--muted)' }}>Which district are you actually in?</div>
+        <select value={pick} onChange={(e) => setPick(e.target.value === '' ? '' : Number(e.target.value))}>
+          <option value="">Choose your district...</option>
+          {districts.map((d) => <option key={d.num} value={d.num}>{d.name}</option>)}
+        </select>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button className="primary" disabled={pick === ''} style={{ flex: 1 }}
+            onClick={confirmThen('Confirm your district? It narrows the zone to exactly that district.', () => { const num = Number(pick); onAnswer(!!seekerD && num === seekerD.num, { hiderDistrict: num }) })}>Confirm</button>
+          <button onClick={() => setPicking(false)}>Back</button>
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div style={{ display: 'grid', gap: 6 }}>
+      <div style={{ fontSize: 12 }}>The seeker is in <b>{seekerD ? seekerD.name : 'an unknown district'}</b>.</div>
+      {myD && <div style={{ fontSize: 11, color: 'var(--muted)' }}>Your GPS suggests you are in {myD.name}.</div>}
+      {seekerD ? (
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="primary" style={{ flex: 1 }}
+            onClick={confirmThen(`Confirm: you are in ${seekerD.name}?`, () => onAnswer(true, { hiderDistrict: seekerD.num }))}>Yes, {seekerD.label}</button>
+          <button style={{ flex: 1 }} onClick={() => { setPick(myD?.num ?? ''); setPicking(true) }}>No, pick mine</button>
+        </div>
+      ) : (
+        <button className="primary" onClick={() => { setPick(myD?.num ?? ''); setPicking(true) }}>Select your district</button>
+      )}
     </div>
   )
 }
@@ -287,7 +329,7 @@ function DeckTab() {
             <div style={{ fontSize: 13, fontWeight: 600 }}>{c.name}</div>
             {c.text && <div style={{ fontSize: 11, color: 'var(--muted)' }}>{c.text}</div>}
           </div>
-          <button className="primary" onClick={() => play(c.uid)}>Play</button>
+          <button className="primary" onClick={confirmThen(`Play "${c.name}"? Its effect applies immediately.`, () => play(c.uid))}>Play</button>
           <button className="danger" onClick={() => remove(c.uid)} style={{ padding: '6px 9px' }}>x</button>
         </div>
       ))}
@@ -315,7 +357,7 @@ function LogTab() {
           <button onClick={() => remove(e.id)} className="danger" style={{ padding: '4px 8px', fontSize: 12 }}>x</button>
         </div>
       ))}
-      <button onClick={clear} className="danger">Clear log</button>
+      <button onClick={confirmThen('Clear the whole question log? This affects the zone for everyone.', clear)} className="danger">Clear log</button>
     </div>
   )
 }
@@ -326,8 +368,6 @@ function PosTab() {
   const requestGps = useStore((s) => s.requestGps)
   const gpsError = useStore((s) => s.gpsError)
   const myPos = useStore((s) => s.myPos)
-  const ref = useStore((s) => s.seekerRef)
-  const setMyPos = useStore((s) => s.setMyPos)
   const role = useStore((s) => s.myRole())
   return (
     <div style={{ display: 'grid', gap: 10 }}>
@@ -336,14 +376,10 @@ function PosTab() {
         {gps ? 'GPS tracking ON (tap to stop)' : 'Turn on GPS tracking'}
       </button>
       {gpsError && <div style={{ fontSize: 12, color: 'var(--warn)' }}>{gpsError}</div>}
-      {role === 'seeker' && <>
-        <Row label="Asker location"><b>{fmtPos(ref)}</b></Row>
-        <button onClick={() => ref && setMyPos(ref)} disabled={!ref}>Set my location to asker point (testing)</button>
-      </>}
       <div style={{ fontSize: 12, color: 'var(--muted)' }}>
         {role === 'hider'
           ? 'Keep GPS on so the app can suggest the correct answer to each question.'
-          : 'Tap the map to set the asker location (where the question is asked from).'}
+          : 'Keep GPS on. Your current location is where your questions are asked from.'}
       </div>
     </div>
   )
@@ -358,19 +394,13 @@ function SetTab() {
         <Row label="My team"><TeamPick value={s.team} onChange={(t) => s.setIdentity(s.name, t)} /></Row>
       </fieldset>
 
-      <fieldset style={fs}><legend>Round and time</legend>
-        <Row label="Team hiding first"><TeamPick value={s.startingTeam} onChange={s.setStartingTeam} /></Row>
+      <fieldset style={fs}><legend>Game</legend>
+        <Row label="Hiding team"><TeamPick value={s.startingTeam} onChange={s.setStartingTeam} /></Row>
         <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-          Round {s.round}, team <b>{s.hidingTeam()}</b> is hiding. Phase: <b>{PHASE_LABEL[s.phase]}</b>
+          Team <b>{s.hidingTeam()}</b> hides, the other team seeks. Phase: <b>{PHASE_LABEL[s.phase]}</b>.
+          Use the big button at the top to start hiding and seeking.
         </div>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          <button className={s.phase === 'hiding' ? 'primary' : ''} onClick={() => s.startPhase('hiding')}>Start hiding ({s.settings.hideMinutes} min)</button>
-          <button className={s.phase === 'seeking' ? 'primary' : ''} onClick={() => s.startPhase('seeking')}>Start seeking</button>
-        </div>
-        <div style={{ display: 'flex', gap: 6 }}>
-          <button onClick={() => s.startPhase('idle')}>Stop timer</button>
-          <button className="danger" onClick={() => s.nextRound()}>End round, next round</button>
-        </div>
+        <div style={{ fontSize: 12, color: 'var(--muted)' }}>One game is a single round (hiding + seeking). For another game, start a new room.</div>
       </fieldset>
 
       <fieldset style={fs}><legend>Rules</legend>
@@ -389,7 +419,7 @@ function SetTab() {
           <button className={s.showPoi ? 'primary' : ''} onClick={() => s.setShowPoi(!s.showPoi)}>{s.showPoi ? 'On' : 'Off'}</button>
         </Row>
         <Row label="Room code"><input value={s.roomCode ?? ''} onChange={(e) => s.setRoom(e.target.value || null)} placeholder="e.g. BUDA42" /></Row>
-        <button onClick={() => s.leaveGame()}>Back to waiting room</button>
+        <button onClick={confirmThen('Leave the game and go back to the waiting room?', () => s.leaveGame())}>Back to waiting room</button>
         <div style={{ fontSize: 11, color: 'var(--muted)' }}>
           Map data: &copy; OpenStreetMap contributors, via OpenFreeMap / OpenMapTiles.
         </div>

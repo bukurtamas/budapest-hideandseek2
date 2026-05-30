@@ -42,6 +42,17 @@ function districtNum(data: AppData, p: LngLat): number | null {
   for (const d of data.districts.features) if (inPolygon(p, d.geometry)) return (d.properties as any).num
   return null
 }
+
+// The district containing a point (num + display name), or null if outside all.
+export function districtAt(data: AppData, p: LngLat): { num: number; name: string; label: string } | null {
+  for (const d of data.districts.features) {
+    if (inPolygon(p, d.geometry)) {
+      const pr = d.properties as { num: number; name: string; label?: string }
+      return { num: pr.num, name: pr.name, label: pr.label || pr.name }
+    }
+  }
+  return null
+}
 function nearest<T extends { geometry: { coordinates: number[] } }>(items: T[], p: LngLat): { item: T | null; dist: number } {
   let best: T | null = null, bd = Infinity
   for (const it of items) {
