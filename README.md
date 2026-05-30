@@ -44,14 +44,14 @@ everything works except cross-device sync.
 ## How the game maps to the app
 
 - **Room and roles.** Players join a room by code (or via an invite link). Each player picks
-  a team (A or B). In each round one team is the **hider** and the other is the **seeker**;
-  the roles swap every round. The role is derived from the round number and the starting team,
-  so nobody has to set it manually.
+  a team (A or B). One team is the **hider** and the other is the **seeker**, set by which
+  team is chosen to hide, so nobody has to assign roles manually. One game is a single round
+  (hiding then seeking); to play again, start a new room.
 - **The possible zone.** Seekers see a bright "possible hiding zone" and a grey shade over
   everywhere the hider cannot be. The starting zone is the union of circles (default 1 km
   radius) around every usable transit stop, clipped to the city boundary. Each answered
   question shrinks it.
-- **Phases and timers.** A round has a hiding phase and a seeking phase, each with its own
+- **Phases and timers.** A game has a hiding phase and a seeking phase, each with its own
   time limit (defaults: 60 min hiding, 180 min seeking). The hider can play time-bonus cards
   that adjust the clock. If the seeking limit is `0` the clock counts up (open-ended) and the
   bonus is added; if the limit is non-zero the clock counts down and the bonus is subtracted
@@ -119,7 +119,7 @@ netlify.toml               # Netlify / Cloudflare Pages build
 
 src/
   main.tsx, App.tsx        # bootstrap; loads data, wires map + sync
-  store.ts                 # Zustand store: room, role, round, log, zone, settings, deck
+  store.ts                 # Zustand store: room, role, phase, log, zone, settings, deck
   sync.ts                  # Firebase bridge (presence, state, log, effects)
   firebase.ts              # SDK init + anonymous auth (graceful if unconfigured)
   data/
